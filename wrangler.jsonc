@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "medusa-effect-hono",
+  "compatibility_date": "2025-08-03",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "main": "./src/index.ts",
+   "workflows": [
+    {
+      "name": "checkout-workflow",
+      "binding": "CHECKOUT_WORKFLOW",
+      "class_name": "CheckoutWorkflow"
+    }
+  ],
+}
