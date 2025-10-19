@@ -1,8 +1,8 @@
 {
-  "name": "medusa-effect-hono",
+  "name": "effect-http-cf",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "wrangler dev",
     "build": "wrangler build",
     "preview": "$npm_execpath run build && vite preview",
     "deploy": "$npm_execpath run build && wrangler deploy",

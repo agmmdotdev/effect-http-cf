@@ -3,14 +3,13 @@ import { HttpApp, HttpRouter, HttpServerResponse } from "@effect/platform";
 export { CheckoutWorkflow } from "./workflow/test";
 import { env } from "cloudflare:workers";
 import { WebSdk } from "@effect/opentelemetry";
-import {
-  ConsoleSpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { JsonConsoleSpanExporter } from "./telemetry/JsonConsoleSpanExporter";
+
 const WebSdkLive = WebSdk.layer(() => ({
   resource: { serviceName: "medusa-effect-hono" },
-  // Export span data to the console
-  spanProcessor: new SimpleSpanProcessor(new ConsoleSpanExporter()),
+  // Export span data to the console as structured JSON
+  spanProcessor: new SimpleSpanProcessor(new JsonConsoleSpanExporter()),
 }));
 // Minimal bindings interface to keep env strongly typed without using any/unknown
 interface Env {}
