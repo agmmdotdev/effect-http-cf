@@ -13,4 +13,5 @@
       "class_name": "CheckoutWorkflow"
     }
   ],
+  "observability": {"enabled": true}
 }
