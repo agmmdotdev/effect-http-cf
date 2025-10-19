@@ -10,6 +10,7 @@ interface SpanEventRecord {
 }
 
 interface SpanRecord {
+  message: string;
   serviceName?: string;
   traceId: string;
   spanId: string;
@@ -47,6 +48,7 @@ function toRecord(span: ReadableSpan): SpanRecord {
   const startMs = hrTimeToMilliseconds(span.startTime);
   const endMs = hrTimeToMilliseconds(span.endTime);
   return {
+    message: span.name,
     serviceName: (span.resource as any)?.attributes?.["service.name"],
     traceId: span.spanContext().traceId,
     spanId: span.spanContext().spanId,

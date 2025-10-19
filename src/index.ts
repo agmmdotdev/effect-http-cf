@@ -46,20 +46,22 @@ const app = router.pipe(
       if (Math.random() > 0.5) {
         return yield* Effect.fail(new Error("Error creating workflow"));
       }
-      const workflow = yield* Effect.tryPromise(async () => {
-        return env.CHECKOUT_WORKFLOW.create();
-      }).pipe(
-        Effect.map((workflow) => Either.right(`Workflow ${workflow.id}`)),
-        Effect.tapError((e) =>
-          Console.log(`Error creating workflow: ${e.toString()}`)
-        ),
-        Effect.catchAll((e) =>
-          Effect.gen(function* () {
-            yield* Console.log(`Error creating workflow: ${e.toString()}`);
-            return Either.left(new CloudflareWorkflowError(e.toString()));
-          })
-        )
-      );
+      const workflow =
+        yield *
+        Effect.tryPromise(async () => {
+          return env.CHECKOUT_WORKFLOW.create();
+        }).pipe(
+          Effect.map((workflow) => Either.right(`Workflow ${workflow.id}`)),
+          Effect.tapError((e) =>
+            Console.log(`Error creatingworkflow: ${e.toString()}`)
+          ),
+          Effect.catchAll((e) =>
+            Effect.gen(function* () {
+              yield* Console.log(`Error creating workflow: ${e.toString()}`);
+              return Either.left(new CloudflareWorkflowError(e.toString()));
+            })
+          )
+        );
       return yield* Either.match(workflow, {
         onRight: (value) => HttpServerResponse.text(value),
         onLeft: (error) =>
