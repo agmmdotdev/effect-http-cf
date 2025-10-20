@@ -3,6 +3,8 @@ import {
   WorkflowEvent,
   WorkflowStep,
 } from "cloudflare:workers";
+import { Cause, Effect, Exit, Option } from "effect";
+import { FetchHttpClient, HttpApi, HttpClient } from "@effect/platform";
 type Env = {
   // Add your bindings here, e.g. Workers KV, D1, Workers AI, etc.
   CHECKOUT_WORKFLOW: Workflow;
@@ -14,73 +16,120 @@ type Params = {
   metadata: Record<string, string>;
 };
 
+type FileList = {
+  files: ReadonlyArray<string>;
+};
+
+type CfIpsResponse = {
+  result: {
+    ipv4_cidrs: ReadonlyArray<string>;
+    ipv6_cidrs: ReadonlyArray<string>;
+  };
+};
+
 export class CheckoutWorkflow extends WorkflowEntrypoint<Env, Params> {
   async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
     // Can access bindings on `this.env`
     // Can access params on `event.payload`
-    console.log("event", event);
+    const workflow = Effect.gen(function* () {
+      yield* Effect.annotateCurrentSpan({
+        "workflow.name": "checkout-workflow",
+      });
+      yield* Effect.log("Workflow started");
+      yield* Effect.log(`Payload email=${event.payload.email}`);
 
-    console.log("[STEP] Starting: my first step");
-    const files = await step.do("my first step", async () => {
-      // Fetch a list of files from $SOME_SERVICE
-      const result = {
-        files: [
-          "doc_7392_rev3.pdf",
-          "report_x29_final.pdf",
-          "memo_2024_05_12.pdf",
-          "file_089_update.pdf",
-          "proj_alpha_v2.pdf",
-          "data_analysis_q2.pdf",
-          "notes_meeting_52.pdf",
-          "summary_fy24_draft.pdf",
-        ],
-      };
-      console.log("[STEP] Result for: my first step", result);
-      return result;
-    });
-    console.log("[STEP] Finished: my first step", files);
+      // Step 1: produce a file list
+      yield* Effect.log("[STEP] Starting: my first step");
+      const files = yield* Effect.tryPromise(() =>
+        step.do("my first step", async (): Promise<FileList> => {
+          const result: FileList = {
+            files: [
+              "doc_7392_rev3.pdf",
+              "report_x29_final.pdf",
+              "memo_2024_05_12.pdf",
+              "file_089_update.pdf",
+              "proj_alpha_v2.pdf",
+              "data_analysis_q2.pdf",
+              "notes_meeting_52.pdf",
+              "summary_fy24_draft.pdf",
+            ],
+          };
+          return result;
+        })
+      ).pipe(Effect.withSpan("STEP my first step"));
+      yield* Effect.log(
+        `[STEP] Finished: my first step - count=${files.files.length}`
+      );
 
-    console.log("[STEP] Starting: some other step");
-    const apiResponse = await step.do("some other step", async () => {
-      let resp = await fetch("https://api.cloudflare.com/client/v4/ips");
-      const result = await resp.json<any>();
-      console.log("[STEP] Result for: some other step", result);
-      return result;
-    });
-    console.log("[STEP] Finished: some other step", apiResponse);
+      // Step 2: call external API
+      yield* Effect.log("[STEP] Starting: some other step");
+      const step2 = yield* Effect.tryPromise(() =>
+        step.do("some other step", async (): Promise<CfIpsResponse> => {
+          const program = Effect.gen(function* () {
+            const http = yield* HttpClient.HttpClient;
+            const response = yield* http.get(
+              "https://api.cloudflare.com/client/v4/ips"
+            );
+            const result = yield* response.json;
+            return result as CfIpsResponse;
+          }).pipe(Effect.catchAll((e) => Effect.die(e.message)));
+          const result = await Effect.runPromise(
+            program.pipe(Effect.provide(FetchHttpClient.layer))
+          );
+          return result;
+        })
+      ).pipe(Effect.withSpan("STEP some other step"));
+      yield* Effect.log(
+        `[STEP] Finished: some other step - ipv4=${step2.result.ipv4_cidrs.length} ipv6=${step2.result.ipv6_cidrs.length}`
+      );
 
-    console.log("[STEP] Sleeping: wait on something (5 seconds)");
-    await step.sleep("wait on something", "5 seconds");
-    console.log("[STEP] Finished sleeping: wait on something");
+      // Step 3: sleep
+      yield* Effect.log("[STEP] Sleeping: wait on something (5 seconds)");
+      yield* Effect.tryPromise(() =>
+        step.sleep("wait on something", "5 seconds")
+      ).pipe(Effect.withSpan("STEP sleep"));
+      yield* Effect.log("[STEP] Finished sleeping: wait on something");
 
-    console.log(
-      "[STEP] Starting: make a call to write that could maybe, just might, fail"
+      // Step 4: a potentially failing step with retries
+      yield* Effect.log(
+        "[STEP] Starting: make a call to write that could maybe, just might, fail"
+      );
+      yield* Effect.tryPromise(() =>
+        step.do(
+          "make a call to write that could maybe, just might, fail",
+          {
+            retries: {
+              limit: 5,
+              delay: "5 second",
+              backoff: "exponential",
+            },
+            timeout: "15 minutes",
+          },
+          async () => {
+            const program = await Effect.runPromise(
+              Effect.gen(function* () {
+                if (Math.random() > 0.5) {
+                  yield* Effect.log("API call to $STORAGE_SYSTEM failed");
+                  return yield* Effect.die(
+                    new Error("API call to $STORAGE_SYSTEM failed")
+                  );
+                }
+                return "success";
+              })
+            );
+            return program;
+          }
+        )
+      ).pipe(Effect.withSpan("STEP maybe-fail"));
+      yield* Effect.log(
+        "[STEP] Finished: make a call to write that could maybe, just might, fail"
+      );
+    }).pipe(
+      Effect.withSpan("CheckoutWorkflow.run"),
+      Effect.catchAll((e) => Effect.logError(e.message))
     );
-    await step.do(
-      "make a call to write that could maybe, just might, fail",
-      // Define a retry strategy
-      {
-        retries: {
-          limit: 5,
-          delay: "5 second",
-          backoff: "exponential",
-        },
-        timeout: "15 minutes",
-      },
-      async () => {
-        // Do stuff here, with access to the state from our previous steps
-        console.log(
-          "[STEP] Inside: make a call to write that could maybe, just might, fail"
-        );
-        if (Math.random() > 0.5) {
-          console.log("[STEP] Error: API call to $STORAGE_SYSTEM failed");
-          throw new Error("API call to $STORAGE_SYSTEM failed");
-        }
-        console.log("[STEP] Success: API call to $STORAGE_SYSTEM succeeded");
-      }
-    );
-    console.log(
-      "[STEP] Finished: make a call to write that could maybe, just might, fail"
-    );
+
+    // Ensure we wait for the Effect program to complete inside the workflow run
+    await Effect.runPromise(workflow);
   }
 }

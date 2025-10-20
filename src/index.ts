@@ -42,26 +42,32 @@ const app = router.pipe(
   HttpRouter.get(
     "/workflow",
     Effect.gen(function* () {
+      yield *
+        Effect.annotateCurrentSpan({
+          "workflow.name": "checkout-workflow",
+        });
       yield* Effect.log("Creating workflow");
       if (Math.random() > 0.5) {
         return yield* Effect.fail(new Error("Error creating workflow"));
       }
-      const workflow =
-        yield *
-        Effect.tryPromise(async () => {
-          return env.CHECKOUT_WORKFLOW.create();
-        }).pipe(
-          Effect.map((workflow) => Either.right(`Workflow ${workflow.id}`)),
-          Effect.tapError((e) =>
-            Console.log(`Error creatingworkflow: ${e.toString()}`)
-          ),
-          Effect.catchAll((e) =>
-            Effect.gen(function* () {
-              yield* Console.log(`Error creating workflow: ${e.toString()}`);
-              return Either.left(new CloudflareWorkflowError(e.toString()));
-            })
+      const workflow = yield* Effect.tryPromise(async () => {
+        return env.CHECKOUT_WORKFLOW.create();
+      }).pipe(
+        Effect.map((workflow) => Either.right(`Workflow ${workflow.id}`)),
+        Effect.tapError((e) =>
+          Effect.logError(`Error creatingworkflow: ${e.toString()}`).pipe(
+            Effect.withSpan("ERROR.GET./workflow")
           )
-        );
+        ),
+        Effect.catchAll((e) =>
+          Effect.gen(function* () {
+            yield* Effect.logError(
+              `Error creating workflow: ${e.toString()}`
+            ).pipe(Effect.withSpan("ERROR.GET./workflow"));
+            return Either.left(new CloudflareWorkflowError(e.message));
+          })
+        )
+      );
       return yield* Either.match(workflow, {
         onRight: (value) => HttpServerResponse.text(value),
         onLeft: (error) =>
@@ -69,7 +75,9 @@ const app = router.pipe(
       });
     }).pipe(
       Effect.tapError((e) =>
-        Console.log(`Error creating workflow: ${e.toString()}`)
+        Effect.logError(`Error creating workflow: ${e.toString()}`).pipe(
+          Effect.withSpan("ERROR.GET./workflow")
+        )
       ),
       Effect.catchAll((e) => {
         return HttpServerResponse.json(
