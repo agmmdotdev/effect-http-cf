@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "medusa-effect-hono",
+  "name": "effect-http-cf",
   "compatibility_date": "2025-09-15",
   "compatibility_flags": [
     "nodejs_compat"
